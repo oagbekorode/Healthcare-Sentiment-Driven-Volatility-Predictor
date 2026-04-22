@@ -74,7 +74,7 @@ fig.update_layout(
     hovermode="x unified"
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
 
 # Correlation metrics
 # Merge on date so the two series actually align before correlating
