@@ -78,8 +78,12 @@ st.plotly_chart(fig, use_container_width=True)
 
 # Correlation metrics
 # Merge on date so the two series actually align before correlating
-prices["Date"] = pd.to_datetime(prices["Date"])
-sentiment["Date"] = pd.to_datetime(sentiment["Date"])
+prices["Date"] = pd.to_datetime(prices["Date"], utc=True, errors="coerce").dt.tz_localize(None)
+sentiment["Date"] = pd.to_datetime(sentiment["Date"], utc=True, errors="coerce").dt.tz_localize(None)
+
+# Drop unparsable timestamps before asof merge.
+prices = prices.dropna(subset=["Date"]).copy()
+sentiment = sentiment.dropna(subset=["Date"]).copy()
 
 merged = pd.merge_asof(
     prices.sort_values("Date"),
