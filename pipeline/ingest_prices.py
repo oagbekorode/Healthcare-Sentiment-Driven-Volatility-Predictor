@@ -1,13 +1,22 @@
-import yfinance as yf
+"""Download intraday prices for the biotech universe into SQLite."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
 import pandas as pd
-from sqlalchemy import create_engine
+import yfinance as yf
 
-TICKERS = ["MRNA", "VRTX", "BNTX", "REGN", "BIIB", 
-           "ALNY", "INCY", "BMRN", "SGEN", "HZNP"]
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-engine = create_engine("sqlite:///data/sentiment.db")
+from pipeline.db import get_engine
+from pipeline.universe import tickers
 
-def fetch_prices(ticker, period="5d", interval="1h"):
+
+def fetch_prices(ticker: str, period: str = "5d", interval: str = "1h") -> pd.DataFrame:
     df = yf.download(
         ticker,
         period=period,
@@ -15,11 +24,14 @@ def fetch_prices(ticker, period="5d", interval="1h"):
         auto_adjust=True,
         group_by="column",
         multi_level_index=False,
+        progress=False,
     )
 
-    # yfinance can still return MultiIndex columns in some versions; flatten to base names.
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+
+    if df.empty:
+        raise ValueError(f"No price data returned for {ticker}")
 
     df["Ticker"] = ticker
     df.reset_index(inplace=True)
@@ -34,8 +46,24 @@ def fetch_prices(ticker, period="5d", interval="1h"):
 
     return df[["Date", "Ticker", "Price_Close", "Volume"]]
 
-for i, t in enumerate(TICKERS):
-    df = fetch_prices(t)
-    mode = "replace" if i == 0 else "append"
-    df.to_sql("prices", engine, if_exists=mode, index=False)
-    print(f"Stored {len(df)} rows for {t}")
+
+def main() -> None:
+    engine = get_engine()
+    tickers_list = tickers()
+    appended = 0
+    for i, t in enumerate(tickers_list):
+        try:
+            df = fetch_prices(t)
+        except Exception as exc:
+            print(f"Skipping {t}: {exc}")
+            continue
+        mode = "replace" if appended == 0 else "append"
+        df.to_sql("prices", engine, if_exists=mode, index=False)
+        appended += 1
+        print(f"Stored {len(df)} rows for {t}")
+    if appended == 0:
+        raise SystemExit("No price rows written; check tickers and network.")
+
+
+if __name__ == "__main__":
+    main()

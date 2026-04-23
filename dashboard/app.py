@@ -1,100 +1,110 @@
-import streamlit as st
-import plotly.graph_objects as go
-import pandas as pd
-from sqlalchemy import create_engine
+import sys
 from pathlib import Path
 
-# Correct absolute path resolution
-BASE_DIR = Path(__file__).resolve().parent.parent
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from sqlalchemy import create_engine
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from pipeline.features import (
+    add_realized_log_volatility,
+    merge_prices_sentiment_nearest,
+)
+
+st.set_page_config(page_title="Healthcare Sentiment & Volatility", layout="wide")
+
+BASE_DIR = _ROOT
 DB_PATH = BASE_DIR / "data" / "sentiment.db"
 
 if not DB_PATH.exists():
-    st.error(f"Database not found at {DB_PATH}. Run your ingestion scripts first.")
+    st.error(f"Database not found at {DB_PATH}. From the repo root run: `python run_pipeline.py`")
     st.stop()
 
 engine = create_engine(f"sqlite:///{DB_PATH.as_posix()}")
 
-st.title("Healthcare Sentiment Volatility Predictor")
+st.title("Healthcare Sentiment → Volatility")
+st.caption(
+    "FinBERT headline scores vs prices. Summary stats use rolling volatility of log returns "
+    "(aligned to the nearest headline time per bar)."
+)
 
-# Safe ticker load
 tickers = pd.read_sql("SELECT DISTINCT Ticker FROM prices", engine)["Ticker"].tolist()
 
 if not tickers:
-    st.warning("No ticker data found. Run ingest_prices.py first.")
+    st.warning("No ticker data found. Run `python -m pipeline.ingest_prices` first.")
     st.stop()
 
-ticker = st.selectbox("Select ticker", tickers)
+ticker = st.selectbox("Ticker", sorted(tickers))
 
-prices = pd.read_sql(
-    "SELECT * FROM prices WHERE Ticker = :t", engine, params={"t": ticker}
-)
-sentiment = pd.read_sql(
-    "SELECT * FROM sentiment WHERE Ticker = :t", engine, params={"t": ticker}
-)
+prices = pd.read_sql("SELECT * FROM prices WHERE Ticker = :t", engine, params={"t": ticker})
+sentiment = pd.read_sql("SELECT * FROM sentiment WHERE Ticker = :t", engine, params={"t": ticker})
 
-# Guard: need both tables to have data
 if prices.empty:
     st.warning(f"No price data for {ticker}.")
     st.stop()
 
 if sentiment.empty:
-    st.warning(f"No sentiment data for {ticker}.")
+    st.warning(f"No sentiment data for {ticker}. Run news ingest + sentiment for the full universe.")
     st.stop()
 
-# Dual-axis chart
 fig = go.Figure()
 
-fig.add_trace(go.Scatter(
-    x=prices["Date"],
-    y=prices["Price_Close"],
-    name="Price",
-    yaxis="y1",
-    line=dict(color="#1f77b4", width=2)
-))
+fig.add_trace(
+    go.Scatter(
+        x=prices["Date"],
+        y=prices["Price_Close"],
+        name="Price",
+        yaxis="y1",
+        line=dict(color="#1f77b4", width=2),
+    )
+)
 
-fig.add_trace(go.Bar(
-    x=sentiment["Date"],
-    y=sentiment["Sentiment_Score"],
-    name="Sentiment",
-    yaxis="y2",
-    opacity=0.5,
-    marker_color=["green" if s > 0 else "red" for s in sentiment["Sentiment_Score"]]
-))
+fig.add_trace(
+    go.Bar(
+        x=sentiment["Date"],
+        y=sentiment["Sentiment_Score"],
+        name="Sentiment",
+        yaxis="y2",
+        opacity=0.45,
+        marker_color=["#2ca02c" if s > 0 else "#d62728" for s in sentiment["Sentiment_Score"]],
+    )
+)
 
 fig.update_layout(
-    title=f"{ticker} — Price vs Sentiment",
+    title=f"{ticker} — price vs headline sentiment",
     yaxis=dict(title="Price (USD)"),
     yaxis2=dict(
-        title="Sentiment Score",
+        title="Sentiment (P(pos) − P(neg))",
         overlaying="y",
         side="right",
-        range=[-1, 1]
+        range=[-1, 1],
     ),
-    legend=dict(x=0, y=1.1, orientation="h"),
-    hovermode="x unified"
+    legend=dict(x=0, y=1.12, orientation="h"),
+    hovermode="x unified",
 )
 
-st.plotly_chart(fig, width='stretch')
+st.plotly_chart(fig, width="stretch")
 
-# Correlation metrics
-# Merge on date so the two series actually align before correlating
-prices["Date"] = pd.to_datetime(prices["Date"], utc=True, errors="coerce").dt.tz_localize(None)
-sentiment["Date"] = pd.to_datetime(sentiment["Date"], utc=True, errors="coerce").dt.tz_localize(None)
+merged = merge_prices_sentiment_nearest(prices, sentiment)
+merged = add_realized_log_volatility(merged, window=6)
+merged_stats = merged.dropna(subset=["Sentiment_Score", "Realized_Vol"])
 
-# Drop unparsable timestamps before asof merge.
-prices = prices.dropna(subset=["Date"]).copy()
-sentiment = sentiment.dropna(subset=["Date"]).copy()
-
-merged = pd.merge_asof(
-    prices.sort_values("Date"),
-    sentiment[["Date", "Sentiment_Score"]].sort_values("Date"),
-    on="Date",
-    direction="nearest"
-)
-
-pearson = merged["Price_Close"].corr(merged["Sentiment_Score"])
-spearman = merged["Price_Close"].corr(merged["Sentiment_Score"], method="spearman")
-
-col1, col2 = st.columns(2)
-col1.metric("Pearson Correlation", f"{pearson:.3f}")
-col2.metric("Spearman Correlation", f"{spearman:.3f}")
+c1, c2, c3, c4 = st.columns(4)
+if not merged_stats.empty and len(merged_stats) >= 3:
+    pv = merged["Price_Close"].corr(merged["Sentiment_Score"])
+    sv = merged_stats["Sentiment_Score"].corr(merged_stats["Realized_Vol"], method="pearson")
+    sp = merged_stats["Sentiment_Score"].corr(merged_stats["Realized_Vol"], method="spearman")
+    c1.metric("Pearson (sentiment vs realized vol)", f"{sv:.3f}")
+    c2.metric("Spearman (sentiment vs realized vol)", f"{sp:.3f}")
+    c3.metric("Pearson (sentiment vs price level)", f"{pv:.3f}")
+    c4.metric(
+        "Bars used (vol stats)",
+        str(len(merged_stats)),
+        help="Needs overlapping news and price history",
+    )
+else:
+    st.info("Not enough overlapping bars to compute volatility correlations for this ticker.")

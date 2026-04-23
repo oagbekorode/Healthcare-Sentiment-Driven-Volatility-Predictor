@@ -1,9 +1,13 @@
-pandas
-sqlalchemy
-python-dotenv
-requests
-yfinance
-transformers
-scipy
-streamlit
-plotly
+# Pin loosely for reproducible installs across machines; upgrade intentionally.
+numpy>=1.26.0,<3
+pandas>=2.1.0,<3
+sqlalchemy>=2.0.0,<3
+python-dotenv>=1.0.0,<2
+requests>=2.31.0,<3
+yfinance>=0.2.40,<1
+transformers>=4.40.0,<5
+torch>=2.2.0,<3
+scipy>=1.11.0,<2
+streamlit>=1.30.0,<2
+plotly>=5.18.0,<7
+pytest>=8.0.0,<9

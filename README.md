@@ -32,15 +32,16 @@ overlaid on the intraday price chart.</i></p>
 This project investigates whether NLP-derived sentiment signals extracted from 
 financial news headlines can predict intraday price volatility in mid-cap 
 biotech and pharmaceutical stocks. Using <b>FinBERT</b> — a transformer model 
-pre-trained on financial corpora — we compute daily sentiment scores for 
-10–15 biotech tickers and test the hypothesis that significant sentiment 
-spikes (|ΔScore| &gt; 0.5) precede measurable volatility events (&gt;2% intraday 
-price movement).
+pre-trained on financial corpora — we compute FinBERT scores on recent headlines for a fixed universe of 
+ten biotech tickers and relate them to short-horizon realized volatility 
+(rolling standard deviation of log returns on hourly bars). A Welch 
+<i>t</i>-test contrasts volatility when |sentiment| &gt; 0.5 versus otherwise.
 </p>
 
 <p>
 Results are visualized in an interactive <b>Streamlit dashboard</b> with 
-Pearson and Spearman correlation coefficients displayed per ticker.
+Pearson and Spearman correlations for sentiment vs realized volatility (and 
+price level for context).
 </p>
 
 <hr>
@@ -89,10 +90,10 @@ news and SEC filings, handles this domain-specific language correctly.
 <th>Tool</th>
 </tr>
 <tr><td>Price Data</td><td>yfinance</td></tr>
-<tr><td>News Headlines</td><td>GNews API / NewsAPI</td></tr>
+<tr><td>News Headlines</td><td>GNews API</td></tr>
 <tr><td>NLP Model</td><td>ProsusAI/FinBERT (HuggingFace)</td></tr>
 <tr><td>Data Storage</td><td>SQLite (SQLAlchemy)</td></tr>
-<tr><td>Analysis</td><td>pandas, scipy, scikit-learn</td></tr>
+<tr><td>Analysis</td><td>pandas, numpy, scipy</td></tr>
 <tr><td>Dashboard</td><td>Streamlit + Plotly</td></tr>
 </table>
 
@@ -130,7 +131,9 @@ Sentiment Score = P(positive) - P(negative) ∈ [-1, 1]
 
 <h3>3. Time Alignment</h3>
 <p>
-Headlines are aligned with price data using <code>merge_asof</code> to ensure proper temporal matching.
+Headlines are aligned with price bars using <code>pandas.merge_asof</code>: 
+backward merge for batch stats (use news available at each bar time), and 
+nearest merge in the dashboard for exploratory overlays.
 </p>
 
 <h3>4. Hypothesis Testing</h3>
@@ -141,7 +144,9 @@ Headlines are aligned with price data using <code>merge_asof</code> to ensure pr
 
 <h3>5. Correlation Analysis</h3>
 <p>
-Pearson and Spearman correlations are computed between sentiment and volatility time series.
+Pearson and Spearman correlations are computed between sentiment and the 
+rolling volatility series per ticker. The Streamlit app also shows sentiment 
+vs price level for intuition (non-stationary; interpret cautiously).
 </p>
 
 <hr>
@@ -164,7 +169,7 @@ Pearson and Spearman correlations are computed between sentiment and volatility 
 <h3>Prerequisites</h3>
 <ul>
 <li>Python 3.10+</li>
-<li>News API key (GNews or NewsAPI)</li>
+<li>GNews API key (see <code>.env.example</code>)</li>
 </ul>
 
 <h3>Installation</h3>
@@ -180,13 +185,26 @@ pip install -r requirements.txt
 cp .env.example .env
 </code></pre>
 
-<h3>Run Pipeline</h3>
+<h3>Run pipeline and dashboard</h3>
+
+<p>From the repository root (so <code>data/sentiment.db</code> resolves correctly):</p>
 
 <pre><code>
-python pipeline/ingest_prices.py
-python pipeline/ingest_news.py
-python pipeline/sentiment.py
+python run_pipeline.py
 streamlit run dashboard/app.py
+</code></pre>
+
+<p>Or run steps individually:</p>
+
+<pre><code>
+python -m pipeline.ingest_prices
+python -m pipeline.ingest_news
+python -m pipeline.sentiment
+python -m pipeline.correlate
+</code></pre>
+
+<pre><code>
+pytest
 </code></pre>
 
 <hr>
@@ -196,9 +214,19 @@ streamlit run dashboard/app.py
 <pre>
 Healthcare-Sentiment-Driven-Volatility-Predictor/
 ├── assets/
-├── data/
+├── data/                  # local SQLite DB (gitignored)
 ├── pipeline/
+│   ├── universe.py        # single ticker ↔ company-name map
+│   ├── db.py              # DB path + engine
+│   ├── features.py        # merge_asof + realized vol helpers
+│   ├── ingest_prices.py
+│   ├── ingest_news.py
+│   ├── sentiment.py
+│   └── correlate.py
 ├── dashboard/
+│   └── app.py
+├── tests/
+├── run_pipeline.py        # one-shot refresh
 ├── .env.example
 ├── requirements.txt
 └── README.md

@@ -1,28 +1,42 @@
-from transformers import pipeline
-import pandas as pd
-from sqlalchemy import create_engine
+"""Score headlines in SQLite with FinBERT (ProsusAI/finbert)."""
+
+from __future__ import annotations
+
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "data" / "sentiment.db"
-engine = create_engine(f"sqlite:///{DB_PATH.as_posix()}")
+import pandas as pd
+from transformers import pipeline
 
-# Load FinBERT — downloads ~500MB on first run
-finbert = pipeline("text-classification", 
-                   model="ProsusAI/finbert", 
-                   return_all_scores=True)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-def clean_headline(text):
-    # Strip common noise prefixes
+from pipeline.db import db_path, get_engine
+
+_finbert = None
+
+
+def _get_finbert():
+    global _finbert
+    if _finbert is None:
+        _finbert = pipeline(
+            "text-classification",
+            model="ProsusAI/finbert",
+            return_all_scores=True,
+        )
+    return _finbert
+
+
+def clean_headline(text: str) -> str:
     noise = ["Breaking:", "BREAKING:", "Market Watch:", "Reuters -", "UPDATE -"]
     for n in noise:
         text = text.replace(n, "").strip()
-    return text[:512]  # FinBERT max token length
+    return text[:512]
 
-def score_headline(text):
-    # Transformers outputs differ by version/config:
-    # - all scores: [[{'label': 'positive', 'score': ...}, ...]]
-    # - top label:  [{'label': 'positive', 'score': ...}]
+
+def score_headline(text: str) -> float:
+    finbert = _get_finbert()
     raw = finbert(clean_headline(str(text)))
     if not raw:
         return 0.0
@@ -46,16 +60,28 @@ def score_headline(text):
     }
     return scores.get("positive", 0.0) - scores.get("negative", 0.0)
 
-tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", engine)["name"].tolist()
-if "news" not in tables:
-    raise ValueError(
-        f"Missing table 'news' in {DB_PATH}. Run pipeline/ingest_news.py first."
-    )
 
-df = pd.read_sql("SELECT * FROM news", engine)
-if df.empty:
-    raise ValueError("No rows found in 'news'. Run pipeline/ingest_news.py first.")
+def main() -> None:
+    engine = get_engine()
+    tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", engine)["name"].tolist()
+    if "news" not in tables:
+        raise ValueError(f"Missing table 'news' in {db_path()}. Run pipeline.ingest_news first.")
 
-df["Sentiment_Score"] = df["Headline"].apply(score_headline)
-df.to_sql("sentiment", engine, if_exists="replace", index=False)
-print("Sentiment scoring complete.")
+    df = pd.read_sql("SELECT * FROM news", engine)
+    if df.empty:
+        raise ValueError("No rows found in 'news'. Run pipeline.ingest_news first.")
+
+    n = len(df)
+    scores = []
+    for i, headline in enumerate(df["Headline"].tolist(), start=1):
+        scores.append(score_headline(headline))
+        if i % 20 == 0 or i == n:
+            print(f"Scored {i}/{n} headlines…")
+
+    df["Sentiment_Score"] = scores
+    df.to_sql("sentiment", engine, if_exists="replace", index=False)
+    print("Sentiment scoring complete.")
+
+
+if __name__ == "__main__":
+    main()
