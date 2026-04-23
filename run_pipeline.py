@@ -3,7 +3,7 @@ Run the full refresh from the repository root:
 
     python run_pipeline.py
 
-Order: prices -> news (deduped) -> FinBERT scores -> correlation summary.
+Order: prices -> news (deduped) -> FinBERT scores -> correlation summary -> walk-forward report.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ MODULES = [
     "pipeline.ingest_news",
     "pipeline.sentiment",
     "pipeline.correlate",
+    "pipeline.experiment",
 ]
 
 

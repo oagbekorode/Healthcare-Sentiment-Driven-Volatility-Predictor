@@ -38,15 +38,28 @@ def merge_prices_sentiment_backward_by_ticker(
     ticker_col: str = "Ticker",
 ) -> pd.DataFrame:
     """For each price row, use the latest sentiment on or before that time (per ticker)."""
-    p = parse_dates(prices, date_col).sort_values([ticker_col, date_col])
-    s = parse_dates(sentiment, date_col).sort_values([ticker_col, date_col])
-    return pd.merge_asof(
-        p,
-        s,
-        on=date_col,
-        by=ticker_col,
-        direction="backward",
-    )
+    p = parse_dates(prices, date_col)
+    s = parse_dates(sentiment, date_col)
+    out_frames: list[pd.DataFrame] = []
+
+    for ticker, p_sub in p.groupby(ticker_col, sort=False):
+        s_sub = s[s[ticker_col] == ticker]
+        if s_sub.empty:
+            out_frames.append(p_sub.copy())
+            continue
+        s_right = s_sub.drop(columns=[ticker_col], errors="ignore")
+        merged_sub = pd.merge_asof(
+            p_sub.sort_values(date_col),
+            s_right.sort_values(date_col),
+            on=date_col,
+            direction="backward",
+        )
+        merged_sub[ticker_col] = ticker
+        out_frames.append(merged_sub)
+
+    if not out_frames:
+        return p.copy()
+    return pd.concat(out_frames, ignore_index=True)
 
 
 def add_realized_log_volatility(

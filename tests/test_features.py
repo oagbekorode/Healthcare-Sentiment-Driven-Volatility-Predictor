@@ -3,6 +3,7 @@ import pandas as pd
 
 from pipeline.features import (
     add_realized_log_volatility,
+    merge_prices_sentiment_backward_by_ticker,
     merge_prices_sentiment_nearest,
 )
 
@@ -41,3 +42,31 @@ def test_realized_vol_positive_on_trend():
     )
     out = add_realized_log_volatility(df, window=3)
     assert out["Realized_Vol"].iloc[-1] > 0
+
+
+def test_backward_merge_handles_multiple_tickers():
+    prices = pd.DataFrame(
+        {
+            "Date": [
+                "2024-01-01 10:00:00+00:00",
+                "2024-01-01 10:30:00+00:00",
+                "2024-01-01 11:00:00+00:00",
+                "2024-01-01 11:30:00+00:00",
+            ],
+            "Ticker": ["AAA", "BBB", "AAA", "BBB"],
+            "Price_Close": [100.0, 50.0, 101.0, 49.0],
+            "Volume": [1, 1, 1, 1],
+        }
+    )
+    sentiment = pd.DataFrame(
+        {
+            "Date": ["2024-01-01 09:55:00+00:00", "2024-01-01 10:25:00+00:00"],
+            "Ticker": ["AAA", "BBB"],
+            "Sentiment_Score": [0.2, -0.1],
+            "Headline": ["a", "b"],
+        }
+    )
+    merged = merge_prices_sentiment_backward_by_ticker(prices, sentiment)
+    assert len(merged) == len(prices)
+    assert "Ticker" in merged.columns
+    assert merged["Sentiment_Score"].notna().all()

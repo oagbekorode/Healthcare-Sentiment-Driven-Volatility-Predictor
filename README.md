@@ -52,6 +52,7 @@ price level for context).
 <li><a href="#tech-stack">Tech Stack</a></li>
 <li><a href="#project-architecture">Project Architecture</a></li>
 <li><a href="#methodology">Methodology</a></li>
+<li><a href="#research-loop">Research Loop</a></li>
 <li><a href="#findings">Findings</a></li>
 <li><a href="#getting-started">Getting Started</a></li>
 <li><a href="#project-structure">Project Structure</a></li>
@@ -151,6 +152,31 @@ vs price level for intuition (non-stationary; interpret cautiously).
 
 <hr>
 
+<h2 id="research-loop">🧪 Research Loop</h2>
+
+<p>
+The repository now includes a reproducible experiment loop to support portfolio-grade
+results and out-of-sample claims:
+</p>
+
+<ol>
+<li><b>Build features</b>: sentiment, lagged volatility, rolling volatility means.</li>
+<li><b>Train baselines</b>: lag-vol, rolling-mean, train-mean/prevalence, random.</li>
+<li><b>Train FinBERT-informed model</b>: linear model using sentiment + volatility features.</li>
+<li><b>Backtest</b>: expanding walk-forward splits (time-aware only, no random split).</li>
+<li><b>Report</b>: auto-write metrics and narrative to <code>reports/portfolio_report.md</code>.</li>
+</ol>
+
+<p>
+Targets evaluated:
+<br>
+<code>Next_Bar_Realized_Vol</code> (regression) and
+<code>Next_Day_Large_Move</code> classification where
+<code>|future return| &gt; 2%</code>.
+</p>
+
+<hr>
+
 <h2 id="findings">📊 Findings</h2>
 
 <p><i>To be filled after sufficient data collection.</i></p>
@@ -194,6 +220,12 @@ python run_pipeline.py
 streamlit run dashboard/app.py
 </code></pre>
 
+<p>The pipeline command also generates:</p>
+<ul>
+<li><code>reports/backtest_metrics.csv</code></li>
+<li><code>reports/portfolio_report.md</code></li>
+</ul>
+
 <p>Or run steps individually:</p>
 
 <pre><code>
@@ -227,6 +259,7 @@ Healthcare-Sentiment-Driven-Volatility-Predictor/
 │   └── app.py
 ├── tests/
 ├── run_pipeline.py        # one-shot refresh
+├── reports/               # generated backtest metrics + narrative report
 ├── .env.example
 ├── requirements.txt
 └── README.md
